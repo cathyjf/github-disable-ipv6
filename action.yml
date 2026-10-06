@@ -1,0 +1,75 @@
+# SPDX-FileCopyrightText: Copyright 2026 Cathy J. Fitzpatrick <cathy@cathyjf.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+#
+# Although IPv6 was adopted as an Internet Standard in 2017, GitHub runners
+# apparently do not provide outbound IPv6 connectivity.
+# See <https://github.com/actions/runner-images/issues/668#issuecomment-624080758>.
+#
+# Despite the lack of IPv6 connectivity, some runners come configured with
+# network interfaces that include IPv6 addresses. This can cause software to
+# query AAAA records and attempt connection to unreachable IPv6 addresses.
+#
+# This action deletes IPv6 addresses from network interfaces on a runner.
+#
+
+name: Remove IPv6 addresses
+description: Remove IPv6 addresses from network interfaces on the runner
+
+runs:
+  using: composite
+  steps:
+    - name: Remove IPv6 addresses from GNU/Linux host
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        . "$GITHUB_ACTION_PATH"/scripts/show-ipv6-addresses.sh
+        show_ipv6_addresses
+        sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
+        show_ipv6_addresses
+
+    - name: Remove IPv6 addresses from macOS host
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        . "$GITHUB_ACTION_PATH"/scripts/show-ipv6-addresses.sh
+        show_ipv6_addresses
+
+        # Turn off IPv6.
+        networksetup -listallnetworkservices |
+          while IFS= read -r service; do
+            networksetup -getnetworkserviceenabled "$service" &> /dev/null &&
+              sudo networksetup -setv6off "$service" || true
+          done
+
+        # Delete existing IPv6 addresses.
+        for interface in $(ifconfig -l inet6); do
+          ifconfig "$interface" inet6 | \
+            awk '/^[[:space:]]*inet6 / { print $2 }' |
+              while IFS= read -r address; do
+                sudo ifconfig "$interface" inet6 "$address" delete || true
+              done
+        done
+
+        show_ipv6_addresses
+
+    - name: Remove IPv6 addresses from Windows host
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        . $env:GITHUB_ACTION_PATH/scripts/show-ipv6-addresses.ps1
+        Show-Ipv6Addresses
+
+        & "$env:GITHUB_ACTION_PATH/dist/remove-ipv6-addresses-$(
+          [Runtime.InteropServices.RuntimeInformation]::
+            OSArchitecture.ToString().ToLowerInvariant()).exe"
+        if ($LASTEXITCODE -ne 0) {
+          Write-Output ('IPv6 removal exited with code {0}' -f $LASTEXITCODE)
+        }
+
+        Show-Ipv6Addresses
+
+        # GitHub's `pwsh` wrapper exits with `$LASTEXITCODE` after the script.
+        # We do not want this action to fail, so we exit with 0 instead.
+        # See <https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#exit-codes-and-error-action-preference>.
+        exit 0
