@@ -4,17 +4,21 @@
 SHELL := pwsh.exe
 .SHELLFLAGS := -NoProfile -Command
 
-.PHONY: all x64 arm64 clean
+architectures := x64 arm64
+install_targets := $(addprefix install-,$(architectures))
 
-all: x64 arm64
+.PHONY: all $(architectures) install $(install_targets) clean
 
-x64: platform = x64
-arm64: platform = ARM64
+all: $(architectures)
 
-x64 arm64:
-	cmake -S . -B build/$@ -G 'Visual Studio 18 2026' -A $(platform)
+$(architectures):
+	cmake -S . -B build/$@ -G 'Visual Studio 18 2026' -A $@
 	cmake --build build/$@ --config Release --parallel
-	cmake --install build/$@ --config Release --prefix dist
+
+install: $(install_targets)
+
+$(install_targets): install-%: all
+	cmake --install build/$* --config Release --prefix dist
 
 clean:
 	cmake -E rm -rf build
