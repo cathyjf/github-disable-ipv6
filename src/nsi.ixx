@@ -36,10 +36,16 @@ auto GetNetworkCompartments() -> std::vector<NET_IF_COMPARTMENT_ID> {
             "but with an incorrect return type.")]]
         const auto function = reinterpret_cast<Function>(
             GetProcAddress(module_, name));
-        THROW_LAST_ERROR_IF_NULL_MSG(function,
-            "could not resolve 'nsi.dll!%s'",
-            std::filesystem::path{name}.c_str());
-        return function;
+        if (function != nullptr) {
+            return function;
+        }
+        const auto transcoded_name = [name] {
+            const auto last_error = wil::last_error_context{};
+            return std::make_unique<std::wstring>(
+                std::filesystem::path{name}.native());
+        }();
+        THROW_LAST_ERROR_MSG("could not resolve 'nsi.dll!%s'",
+            transcoded_name->c_str());
     };
     const auto allocate = load_function.operator()<AllocateTable>(
         "NsiAllocateAndGetTable");
