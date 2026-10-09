@@ -31,21 +31,21 @@ auto GetNetworkCompartments() -> std::vector<NET_IF_COMPARTMENT_ID> {
     THROW_LAST_ERROR_IF_NULL_MSG(module, "could not load 'nsi.dll'");
     const auto load_function = [module_ = module.get()]<typename Function>(
         _In_z_ const char *const name) -> _Ret_notnull_ auto {
-        [[gsl::suppress("26490", justification:
-            "`GetProcAddress` returns the address of the requested function "
-            "but with an incorrect return type.")]]
-        const auto function = reinterpret_cast<Function>(
-            GetProcAddress(module_, name));
-        if (function != nullptr) {
+        if (const auto function = [module_, name] {
+                [[gsl::suppress("26490", justification:
+                    "`GetProcAddress` returns the address of the requested "
+                    "function but with an incorrect return type.")]]
+                return reinterpret_cast<Function>(
+                    GetProcAddress(module_, name));
+            }()) {
             return function;
         }
-        const auto transcoded_name = [name] {
-            const auto last_error = wil::last_error_context{};
-            return std::make_unique<std::wstring>(
-                std::filesystem::path{name}.native());
-        }();
         THROW_LAST_ERROR_MSG("could not resolve 'nsi.dll!%s'",
-            transcoded_name->c_str());
+            [name] {
+                const auto last_error = wil::last_error_context{};
+                return std::make_unique<std::wstring>(
+                    std::filesystem::path{name}.native());
+            }()->c_str());
     };
     const auto allocate = load_function.operator()<AllocateTable>(
         "NsiAllocateAndGetTable");
